@@ -4,9 +4,9 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Path
 from pydantic import BaseModel, Field
 
-import app.storage as storage
 from app.auth.handlers import AuthedUser
 from app.schema import Assistant
+from app.storage.option import get_storage
 
 router = APIRouter()
 
@@ -25,13 +25,13 @@ AssistantID = Annotated[str, Path(description="The ID of the assistant.")]
 @router.get("/")
 async def list_assistants(user: AuthedUser) -> List[Assistant]:
     """List all assistants for the current user."""
-    return await storage.list_assistants(user["user_id"])
+    return await get_storage().list_assistants(user["user_id"])
 
 
 @router.get("/public/")
 async def list_public_assistants() -> List[Assistant]:
     """List all public assistants."""
-    return await storage.list_public_assistants()
+    return await get_storage().list_public_assistants()
 
 
 @router.get("/{aid}")
@@ -40,7 +40,7 @@ async def get_assistant(
     aid: AssistantID,
 ) -> Assistant:
     """Get an assistant by ID."""
-    assistant = await storage.get_assistant(user["user_id"], aid)
+    assistant = await get_storage().get_assistant(user["user_id"], aid)
     if not assistant:
         raise HTTPException(status_code=404, detail="Assistant not found")
     return assistant
@@ -52,7 +52,7 @@ async def create_assistant(
     payload: AssistantPayload,
 ) -> Assistant:
     """Create an assistant."""
-    return await storage.put_assistant(
+    return await get_storage().put_assistant(
         user["user_id"],
         str(uuid4()),
         name=payload.name,
@@ -68,7 +68,7 @@ async def upsert_assistant(
     payload: AssistantPayload,
 ) -> Assistant:
     """Create or update an assistant."""
-    return await storage.put_assistant(
+    return await get_storage().put_assistant(
         user["user_id"],
         aid,
         name=payload.name,
@@ -83,5 +83,5 @@ async def delete_assistant(
     aid: AssistantID,
 ):
     """Delete an assistant by ID."""
-    await storage.delete_assistant(user["user_id"], aid)
+    await get_storage().delete_assistant(user["user_id"], aid)
     return {"status": "ok"}

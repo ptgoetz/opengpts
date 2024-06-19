@@ -7,10 +7,10 @@ from fastapi import FastAPI, Form, UploadFile
 from fastapi.exceptions import HTTPException
 from fastapi.staticfiles import StaticFiles
 
-import app.storage as storage
 from app.api import router as api_router
 from app.auth.handlers import AuthedUser
 from app.lifespan import lifespan
+from app.storage.option import get_storage
 from app.upload import convert_ingestion_input_to_blob, ingest_runnable
 
 logger = structlog.get_logger(__name__)
@@ -34,13 +34,13 @@ async def ingest_files(
 
     assistant_id = config["configurable"].get("assistant_id")
     if assistant_id is not None:
-        assistant = await storage.get_assistant(user["user_id"], assistant_id)
+        assistant = await get_storage().get_assistant(user["user_id"], assistant_id)
         if assistant is None:
             raise HTTPException(status_code=404, detail="Assistant not found.")
 
     thread_id = config["configurable"].get("thread_id")
     if thread_id is not None:
-        thread = await storage.get_thread(user["user_id"], thread_id)
+        thread = await get_storage().get_thread(user["user_id"], thread_id)
         if thread is None:
             raise HTTPException(status_code=404, detail="Thread not found.")
 

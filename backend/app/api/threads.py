@@ -5,9 +5,9 @@ from fastapi import APIRouter, HTTPException, Path
 from langchain.schema.messages import AnyMessage
 from pydantic import BaseModel, Field
 
-import app.storage as storage
 from app.auth.handlers import AuthedUser
 from app.schema import Thread
+from app.storage.option import get_storage
 
 router = APIRouter()
 
@@ -32,7 +32,7 @@ class ThreadPostRequest(BaseModel):
 @router.get("/")
 async def list_threads(user: AuthedUser) -> List[Thread]:
     """List all threads for the current user."""
-    return await storage.list_threads(user["user_id"])
+    return await get_storage().list_threads(user["user_id"])
 
 
 @router.get("/{tid}/state")
@@ -41,13 +41,15 @@ async def get_thread_state(
     tid: ThreadID,
 ):
     """Get state for a thread."""
-    thread = await storage.get_thread(user["user_id"], tid)
+    thread = await get_storage().get_thread(user["user_id"], tid)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
-    assistant = await storage.get_assistant(user["user_id"], thread["assistant_id"])
+    assistant = await get_storage().get_assistant(
+        user["user_id"], thread["assistant_id"]
+    )
     if not assistant:
         raise HTTPException(status_code=400, detail="Thread has no assistant")
-    return await storage.get_thread_state(
+    return await get_storage().get_thread_state(
         user_id=user["user_id"],
         thread_id=tid,
         assistant=assistant,
@@ -61,13 +63,15 @@ async def add_thread_state(
     payload: ThreadPostRequest,
 ):
     """Add state to a thread."""
-    thread = await storage.get_thread(user["user_id"], tid)
+    thread = await get_storage().get_thread(user["user_id"], tid)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
-    assistant = await storage.get_assistant(user["user_id"], thread["assistant_id"])
+    assistant = await get_storage().get_assistant(
+        user["user_id"], thread["assistant_id"]
+    )
     if not assistant:
         raise HTTPException(status_code=400, detail="Thread has no assistant")
-    return await storage.update_thread_state(
+    return await get_storage().update_thread_state(
         payload.config or {"configurable": {"thread_id": tid}},
         payload.values,
         user_id=user["user_id"],
@@ -81,13 +85,15 @@ async def get_thread_history(
     tid: ThreadID,
 ):
     """Get all past states for a thread."""
-    thread = await storage.get_thread(user["user_id"], tid)
+    thread = await get_storage().get_thread(user["user_id"], tid)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
-    assistant = await storage.get_assistant(user["user_id"], thread["assistant_id"])
+    assistant = await get_storage().get_assistant(
+        user["user_id"], thread["assistant_id"]
+    )
     if not assistant:
         raise HTTPException(status_code=400, detail="Thread has no assistant")
-    return await storage.get_thread_history(
+    return await get_storage().get_thread_history(
         user_id=user["user_id"],
         thread_id=tid,
         assistant=assistant,
@@ -100,7 +106,7 @@ async def get_thread(
     tid: ThreadID,
 ) -> Thread:
     """Get a thread by ID."""
-    thread = await storage.get_thread(user["user_id"], tid)
+    thread = await get_storage().get_thread(user["user_id"], tid)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
     return thread
@@ -112,7 +118,7 @@ async def create_thread(
     thread_put_request: ThreadPutRequest,
 ) -> Thread:
     """Create a thread."""
-    return await storage.put_thread(
+    return await get_storage().put_thread(
         user["user_id"],
         str(uuid4()),
         assistant_id=thread_put_request.assistant_id,
@@ -127,7 +133,7 @@ async def upsert_thread(
     thread_put_request: ThreadPutRequest,
 ) -> Thread:
     """Update a thread."""
-    return await storage.put_thread(
+    return await get_storage().put_thread(
         user["user_id"],
         tid,
         assistant_id=thread_put_request.assistant_id,
@@ -141,5 +147,5 @@ async def delete_thread(
     tid: ThreadID,
 ):
     """Delete a thread by ID."""
-    await storage.delete_thread(user["user_id"], tid)
+    await get_storage().delete_thread(user["user_id"], tid)
     return {"status": "ok"}

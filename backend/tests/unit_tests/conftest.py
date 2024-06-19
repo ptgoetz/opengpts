@@ -49,7 +49,7 @@ async def _drop_test_db() -> None:
 
 
 def _migrate_test_db() -> None:
-    subprocess.run(["make", "migrate"], check=True)
+    subprocess.run(["make", "migrate-postgres"], check=True)
 
 
 @pytest.fixture(scope="session")
