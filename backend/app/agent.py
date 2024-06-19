@@ -146,6 +146,7 @@ class ConfigurableAgent(RunnableBinding):
         system_message: str = DEFAULT_SYSTEM_MESSAGE,
         assistant_id: Optional[str] = None,
         thread_id: Optional[str] = None,
+        user_id: Optional[str] = None,
         retrieval_description: str = RETRIEVAL_DESCRIPTION,
         interrupt_before_action: bool = False,
         kwargs: Optional[Mapping[str, Any]] = None,
@@ -165,6 +166,11 @@ class ConfigurableAgent(RunnableBinding):
                 )
             else:
                 tool_config = _tool.get("config", {})
+                if _tool["type"] == AvailableTools.ACTION_SERVER:
+                    tool_config["additional_headers"] = {
+                        "x-invoked_by_assistant_id": assistant_id,
+                        "x-invoked_on_behalf_of_user_id": user_id
+                    }
                 _returned_tools = TOOLS[_tool["type"]](**tool_config)
                 if isinstance(_returned_tools, list):
                     _tools.extend(_returned_tools)
@@ -336,6 +342,7 @@ agent: Pregel = (
         retrieval_description=RETRIEVAL_DESCRIPTION,
         assistant_id=None,
         thread_id=None,
+        user_id=None,
     )
     .configurable_fields(
         agent=ConfigurableField(id="agent_type", name="Agent Type"),
@@ -349,6 +356,7 @@ agent: Pregel = (
             id="assistant_id", name="Assistant ID", is_shared=True
         ),
         thread_id=ConfigurableField(id="thread_id", name="Thread ID", is_shared=True),
+        user_id=ConfigurableField(id="user_id", name="User ID", is_shared=True),
         tools=ConfigurableField(id="tools", name="Tools"),
         retrieval_description=ConfigurableField(
             id="retrieval_description", name="Retrieval Description"
