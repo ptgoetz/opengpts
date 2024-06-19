@@ -167,10 +167,15 @@ class ConfigurableAgent(RunnableBinding):
             else:
                 tool_config = _tool.get("config", {})
                 if _tool["type"] == AvailableTools.ACTION_SERVER:
-                    tool_config["additional_headers"] = {
-                        "x-invoked_by_assistant_id": assistant_id,
-                        "x-invoked_on_behalf_of_user_id": user_id,
-                    }
+                    tool_config["additional_headers"] = (
+                        {
+                            "x-invoked_by_assistant_id": assistant_id,
+                            "x-invoked_on_behalf_of_user_id": user_id,
+                        }
+                        if assistant_id and user_id
+                        else {}
+                    )
+
                 _returned_tools = TOOLS[_tool["type"]](**tool_config)
                 if isinstance(_returned_tools, list):
                     _tools.extend(_returned_tools)
