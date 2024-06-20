@@ -1,4 +1,4 @@
-from typing import Annotated, List
+from typing import Annotated, List, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Path
@@ -17,6 +17,9 @@ class AssistantPayload(BaseModel):
     name: str = Field(..., description="The name of the assistant.")
     config: dict = Field(..., description="The assistant config.")
     public: bool = Field(default=False, description="Whether the assistant is public.")
+    metadata: Optional[dict] = Field(
+        default=None, description="Additional metadata for the assistant."
+    )
 
 
 AssistantID = Annotated[str, Path(description="The ID of the assistant.")]
@@ -58,6 +61,7 @@ async def create_assistant(
         name=payload.name,
         config=payload.config,
         public=payload.public,
+        metadata=payload.metadata,
     )
 
 

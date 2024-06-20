@@ -33,6 +33,7 @@ class BaseStorage(ABC):
         name: str,
         config: dict,
         public: bool = False,
+        metadata: Optional[dict]
     ) -> Assistant:
         """Modify an assistant.
 
@@ -42,6 +43,7 @@ class BaseStorage(ABC):
             name: The assistant name.
             config: The assistant config.
             public: Whether the assistant is public.
+            metadata: Additional metadata.
 
         Returns:
             return the assistant model if no exception is raised.

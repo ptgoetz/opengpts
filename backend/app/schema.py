@@ -28,6 +28,8 @@ class Assistant(TypedDict):
     """The last time the assistant was updated."""
     public: bool
     """Whether the assistant is public."""
+    metadata: Optional[dict]
+    """The assistant metadata."""
 
 
 class Thread(TypedDict):
@@ -42,3 +44,15 @@ class Thread(TypedDict):
     updated_at: datetime
     """The last time the thread was updated."""
     metadata: Optional[dict]
+    """The thread metadata."""
+
+
+class UploadedFile(TypedDict):
+    file_id: str
+    """The ID of the file."""
+    file_path: str
+    """The path of the file."""
+    file_hash: str
+    """The hash of the file."""
+    embedded: bool
+    """Whether the file is embedded."""

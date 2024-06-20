@@ -42,6 +42,7 @@ class PostgresStorage(BaseStorage):
         name: str,
         config: dict,
         public: bool = False,
+        metadata: Optional[dict]
     ) -> Assistant:
         """Modify an assistant.
 
@@ -51,6 +52,7 @@ class PostgresStorage(BaseStorage):
             name: The assistant name.
             config: The assistant config.
             public: Whether the assistant is public.
+            metadata: Additional metadata.
 
         Returns:
             return the assistant model if no exception is raised.
@@ -60,13 +62,14 @@ class PostgresStorage(BaseStorage):
             async with conn.transaction():
                 await conn.execute(
                     (
-                        "INSERT INTO assistant (assistant_id, user_id, name, config, updated_at, public) VALUES ($1, $2, $3, $4, $5, $6) "
+                        "INSERT INTO assistant (assistant_id, user_id, name, config, updated_at, public, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7) "
                         "ON CONFLICT (assistant_id) DO UPDATE SET "
                         "user_id = EXCLUDED.user_id, "
                         "name = EXCLUDED.name, "
                         "config = EXCLUDED.config, "
                         "updated_at = EXCLUDED.updated_at, "
-                        "public = EXCLUDED.public;"
+                        "public = EXCLUDED.public,"
+                        "metadata = EXCLUDED.metadata;"
                     ),
                     assistant_id,
                     user_id,
@@ -74,6 +77,7 @@ class PostgresStorage(BaseStorage):
                     config,
                     updated_at,
                     public,
+                    metadata,
                 )
         return {
             "assistant_id": assistant_id,
@@ -82,6 +86,7 @@ class PostgresStorage(BaseStorage):
             "config": config,
             "updated_at": updated_at,
             "public": public,
+            "metadata": metadata,
         }
 
     async def delete_assistant(self, user_id: str, assistant_id: str) -> None:
