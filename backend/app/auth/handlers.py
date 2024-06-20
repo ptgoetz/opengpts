@@ -7,9 +7,9 @@ import requests
 from fastapi import Depends, HTTPException, Request
 from fastapi.security.http import HTTPBearer
 
+from app.storage.option import   get_storage
 from app.auth.settings import AuthType, settings
 from app.schema import User
-from app.storage.option import get_storage
 
 
 class AuthHandler(ABC):
@@ -23,7 +23,7 @@ class NOOPAuth(AuthHandler):
 
     async def __call__(self, request: Request) -> User:
         sub = request.cookies.get("opengpts_user_id") or self._default_sub
-        user, _ = await get_storage().get_or_create_user(sub)
+        user, _ = get_storage().get_or_create_user(sub)
         return user
 
 
@@ -37,16 +37,14 @@ class JWTAuthBase(AuthHandler):
         except jwt.PyJWTError as e:
             raise HTTPException(status_code=401, detail=str(e))
 
-        user, _ = await get_storage().get_or_create_user(payload["sub"])
+        user, _ = get_storage().get_or_create_user(payload["sub"])
         return user
 
     @abstractmethod
-    def decode_token(self, token: str, decode_key: str) -> dict:
-        ...
+    def decode_token(self, token: str, decode_key: str) -> dict: ...
 
     @abstractmethod
-    def get_decode_key(self, token: str) -> str:
-        ...
+    def get_decode_key(self, token: str) -> str: ...
 
 
 class JWTAuthLocal(JWTAuthBase):
