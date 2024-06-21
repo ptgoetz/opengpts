@@ -3,11 +3,12 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Path
 from langchain.schema.messages import AnyMessage
+from langchain_core.messages import AIMessage
 from pydantic import BaseModel, Field
 
-from app.auth.handlers import AuthedUser
-from app.schema import Thread
 from app.storage.option import get_storage
+from app.auth.handlers import AuthedUser
+from app.schema import Thread, UploadedFile
 
 router = APIRouter()
 
@@ -15,24 +16,33 @@ router = APIRouter()
 ThreadID = Annotated[str, Path(description="The ID of the thread.")]
 
 
-class ThreadPutRequest(BaseModel):
+class ThreadPostRequest(BaseModel):
     """Payload for creating a thread."""
+
+    name: str = Field(..., description="The name of the thread.")
+    assistant_id: str = Field(..., description="The ID of the assistant to use.")
+    starting_message: Optional[str] = Field(
+        None, description="The starting AI message for the thread."
+    )
+
+
+class ThreadPutRequest(BaseModel):
+    """Payload for updating a thread."""
 
     name: str = Field(..., description="The name of the thread.")
     assistant_id: str = Field(..., description="The ID of the assistant to use.")
 
 
-class ThreadPostRequest(BaseModel):
+class ThreadStatePostRequest(BaseModel):
     """Payload for adding state to a thread."""
 
     values: Union[Sequence[AnyMessage], Dict[str, Any]]
-    config: Optional[Dict[str, Any]] = None
 
 
 @router.get("/")
 async def list_threads(user: AuthedUser) -> List[Thread]:
     """List all threads for the current user."""
-    return await get_storage().list_threads(user["user_id"])
+    return get_storage().list_threads(user["user_id"])
 
 
 @router.get("/{tid}/state")
@@ -41,42 +51,24 @@ async def get_thread_state(
     tid: ThreadID,
 ):
     """Get state for a thread."""
-    thread = await get_storage().get_thread(user["user_id"], tid)
+    thread = get_storage().get_thread(user["user_id"], tid)
+    state = get_storage().get_thread_state(user["user_id"], tid)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
-    assistant = await get_storage().get_assistant(
-        user["user_id"], thread["assistant_id"]
-    )
-    if not assistant:
-        raise HTTPException(status_code=400, detail="Thread has no assistant")
-    return await get_storage().get_thread_state(
-        user_id=user["user_id"],
-        thread_id=tid,
-        assistant=assistant,
-    )
+    return state
 
 
 @router.post("/{tid}/state")
 async def add_thread_state(
     user: AuthedUser,
     tid: ThreadID,
-    payload: ThreadPostRequest,
+    payload: ThreadStatePostRequest,
 ):
     """Add state to a thread."""
-    thread = await get_storage().get_thread(user["user_id"], tid)
+    thread = get_storage().get_thread(user["user_id"], tid)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
-    assistant = await get_storage().get_assistant(
-        user["user_id"], thread["assistant_id"]
-    )
-    if not assistant:
-        raise HTTPException(status_code=400, detail="Thread has no assistant")
-    return await get_storage().update_thread_state(
-        payload.config or {"configurable": {"thread_id": tid}},
-        payload.values,
-        user_id=user["user_id"],
-        assistant=assistant,
-    )
+    return get_storage().update_thread_state(user["user_id"], tid, payload.values)
 
 
 @router.get("/{tid}/history")
@@ -85,19 +77,11 @@ async def get_thread_history(
     tid: ThreadID,
 ):
     """Get all past states for a thread."""
-    thread = await get_storage().get_thread(user["user_id"], tid)
+    thread = get_storage().get_thread(user["user_id"], tid)
+    history = get_storage().get_thread_history(user["user_id"], tid)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
-    assistant = await get_storage().get_assistant(
-        user["user_id"], thread["assistant_id"]
-    )
-    if not assistant:
-        raise HTTPException(status_code=400, detail="Thread has no assistant")
-    return await get_storage().get_thread_history(
-        user_id=user["user_id"],
-        thread_id=tid,
-        assistant=assistant,
-    )
+    return history
 
 
 @router.get("/{tid}")
@@ -106,7 +90,7 @@ async def get_thread(
     tid: ThreadID,
 ) -> Thread:
     """Get a thread by ID."""
-    thread = await get_storage().get_thread(user["user_id"], tid)
+    thread = get_storage().get_thread(user["user_id"], tid)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
     return thread
@@ -115,29 +99,42 @@ async def get_thread(
 @router.post("")
 async def create_thread(
     user: AuthedUser,
-    thread_put_request: ThreadPutRequest,
+    payload: ThreadPostRequest,
 ) -> Thread:
     """Create a thread."""
-    return await get_storage().put_thread(
+    thread = get_storage().put_thread(
         user["user_id"],
         str(uuid4()),
-        assistant_id=thread_put_request.assistant_id,
-        name=thread_put_request.name,
+        assistant_id=payload.assistant_id,
+        name=payload.name,
+        metadata=None,
     )
+    if payload.starting_message is not None:
+        message = AIMessage(id=str(uuid4()), content=payload.starting_message)
+        get_storage().update_thread_state(
+            user_id=user["user_id"],
+            thread_id=thread["thread_id"],
+            values={"messages": [message]},
+        )
+    return thread
 
 
 @router.put("/{tid}")
 async def upsert_thread(
     user: AuthedUser,
     tid: ThreadID,
-    thread_put_request: ThreadPutRequest,
+    payload: ThreadPutRequest,
 ) -> Thread:
     """Update a thread."""
-    return await get_storage().put_thread(
+    thread = get_storage().get_thread(user["user_id"], tid)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    return get_storage().put_thread(
         user["user_id"],
         tid,
-        assistant_id=thread_put_request.assistant_id,
-        name=thread_put_request.name,
+        assistant_id=payload.assistant_id,
+        name=payload.name,
+        metadata=thread["metadata"],
     )
 
 
@@ -149,3 +146,15 @@ async def delete_thread(
     """Delete a thread by ID."""
     await get_storage().delete_thread(user["user_id"], tid)
     return {"status": "ok"}
+
+
+@router.get("/{tid}/files")
+async def get_thread_files(
+    user: AuthedUser,
+    tid: ThreadID,
+) -> List[UploadedFile]:
+    """Get a list of files associated with a thread."""
+    thread = get_storage().get_thread(user["user_id"], tid)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    return get_storage().get_thread_files(tid)

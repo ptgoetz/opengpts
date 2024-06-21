@@ -8,7 +8,7 @@ router = APIRouter()
 
 
 @router.get("/ok")
-async def ok():
+def ok():
     return {"ok": True}
 
 

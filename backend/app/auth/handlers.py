@@ -23,7 +23,7 @@ class NOOPAuth(AuthHandler):
 
     async def __call__(self, request: Request) -> User:
         sub = request.cookies.get("opengpts_user_id") or self._default_sub
-        user, _ = get_storage().get_or_create_user(sub)
+        user, _ = await get_storage().get_or_create_user(sub)
         return user
 
 

@@ -1,5 +1,5 @@
+from datetime import datetime
 from typing import Any, Dict, Optional, Sequence, Union
-from uuid import UUID
 
 import langsmith.client
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -7,16 +7,20 @@ from fastapi.exceptions import RequestValidationError
 from langchain.pydantic_v1 import ValidationError
 from langchain_core.messages import AnyMessage
 from langchain_core.runnables import RunnableConfig
+from langserve.schema import FeedbackCreateRequest
+from langserve.server import _unpack_input
 from langsmith.utils import tracing_is_enabled
 from pydantic import BaseModel, Field
 from sse_starlette import EventSourceResponse
 
 from app.agent import agent
 from app.auth.handlers import AuthedUser
+from app.langsmith_client import get_langsmith_thread_url, save_langsmith_thread_url
 from app.storage.option import get_storage
 from app.stream import astream_state, to_sse
 
 router = APIRouter()
+langsmith_client = langsmith.client.Client() if tracing_is_enabled() else None
 
 
 class CreateRunPayload(BaseModel):
@@ -30,11 +34,11 @@ class CreateRunPayload(BaseModel):
 
 
 async def _run_input_and_config(payload: CreateRunPayload, user_id: str):
-    thread = await get_storage().get_thread(user_id, payload.thread_id)
+    thread = get_storage().get_thread(user_id, payload.thread_id)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
 
-    assistant = await get_storage().get_assistant(user_id, str(thread["assistant_id"]))
+    assistant = get_storage().get_assistant(user_id, str(thread["assistant_id"]))
     if not assistant:
         raise HTTPException(status_code=404, detail="Assistant not found")
 
@@ -49,13 +53,35 @@ async def _run_input_and_config(payload: CreateRunPayload, user_id: str):
         },
     }
 
+    current_datetime = _current_timestamp_with_iso_week_local()
+    configurable = config["configurable"]
+    for key in configurable:
+        if key.endswith("/system_message"):
+            configurable[key] = configurable[key].replace(
+                "${CURRENT_DATETIME}", current_datetime
+            )
+
     try:
-        if payload.input is not None:
-            agent.get_input_schema(config).validate(payload.input)
+        input_ = (
+            _unpack_input(agent.get_input_schema(config).validate(payload.input))
+            if payload.input is not None
+            else None
+        )
+        input_ = {"messages": input_ or []}
     except ValidationError as e:
         raise RequestValidationError(e.errors(), body=payload)
 
-    return payload.input, config
+    return input_, config, thread, assistant
+
+
+def _current_timestamp_with_iso_week_local():
+    now = datetime.now().astimezone()
+    iso_timestamp = now.replace(second=0, microsecond=0).isoformat()
+    day_of_week = now.strftime("%A")
+    # ISO week number
+    week_number = now.strftime("%V")
+    formatted_string = f"{iso_timestamp} [{day_of_week}, Week {week_number}]"
+    return formatted_string
 
 
 @router.post("")
@@ -65,7 +91,7 @@ async def create_run(
     background_tasks: BackgroundTasks,
 ):
     """Create a run."""
-    input_, config = await _run_input_and_config(payload, user["user_id"])
+    input_, config, _, _ = await _run_input_and_config(payload, user["user_id"])
     background_tasks.add_task(agent.ainvoke, input_, config)
     return {"status": "ok"}  # TODO add a run id
 
@@ -76,8 +102,10 @@ async def stream_run(
     user: AuthedUser,
 ):
     """Create a run."""
-    input_, config = await _run_input_and_config(payload, user["user_id"])
-
+    input_, config, thread, _ = await _run_input_and_config(payload, user["user_id"])
+    if langsmith_client:
+        if url := get_langsmith_thread_url(langsmith_client, thread["thread_id"]):
+            save_langsmith_thread_url(thread, url)
     return EventSourceResponse(to_sse(astream_state(agent, input_, config)))
 
 
@@ -99,28 +127,7 @@ async def config_schema() -> dict:
     return agent.config_schema().schema()
 
 
-if tracing_is_enabled():
-    langsmith_client = langsmith.client.Client()
-
-    class FeedbackCreateRequest(BaseModel):
-        """
-        Shared information between create requests of feedback and feedback objects
-        """
-
-        run_id: UUID
-        """The associated run ID this feedback is logged for."""
-
-        key: str
-        """The metric name, tag, or aspect to provide feedback on."""
-
-        score: Optional[Union[float, int, bool]] = None
-        """Value or score to assign the run."""
-
-        value: Optional[Union[float, int, bool, str, Dict]] = None
-        """The display value for the feedback if not a metric."""
-
-        comment: Optional[str] = None
-        """Comment or explanation for the feedback."""
+if langsmith_client:
 
     @router.post("/feedback")
     def create_run_feedback(feedback_create_req: FeedbackCreateRequest) -> dict:
