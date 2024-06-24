@@ -29,10 +29,10 @@ class BaseStorage(ABC):
         """Get an assistant by ID."""
         pass
 
-    @abstractmethod
-    async def list_public_assistants(self, assistant_ids: Sequence[str]) -> List[Assistant]:
-        """List all the public assistants."""
-        pass
+    # @abstractmethod
+    # async def list_public_assistants(self, assistant_ids: Sequence[str]) -> List[Assistant]:
+    #     """List all the public assistants."""
+    #     pass
 
     @abstractmethod
     async def put_assistant(

@@ -151,20 +151,20 @@ class SqliteStorage(BaseStorage):
             )
             return Assistant(**assistant_data)
 
-    def list_public_assistants(self, assistant_ids: Sequence[str]) -> List[Assistant]:
-        """List all the public assistants."""
-        assistant_ids_tuple = tuple(
-            assistant_ids
-        )  # SQL requires a tuple for the IN operator.
-        placeholders = ", ".join("?" for _ in assistant_ids)
-        with self._connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                f"SELECT * FROM assistant WHERE assistant_id IN ({placeholders}) AND public = 1",
-                assistant_ids_tuple,
-            )
-            rows = cursor.fetchall()
-            return [Assistant(**dict(row)) for row in rows]
+    # def list_public_assistants(self, assistant_ids: Sequence[str]) -> List[Assistant]:
+    #     """List all the public assistants."""
+    #     assistant_ids_tuple = tuple(
+    #         assistant_ids
+    #     )  # SQL requires a tuple for the IN operator.
+    #     placeholders = ", ".join("?" for _ in assistant_ids)
+    #     with self._connect() as conn:
+    #         cursor = conn.cursor()
+    #         cursor.execute(
+    #             f"SELECT * FROM assistant WHERE assistant_id IN ({placeholders}) AND public = 1",
+    #             assistant_ids_tuple,
+    #         )
+    #         rows = cursor.fetchall()
+    #         return [Assistant(**dict(row)) for row in rows]
 
     def put_assistant(
             self,

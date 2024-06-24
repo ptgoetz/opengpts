@@ -65,19 +65,20 @@ async def _generate_welcome_message(
 @router.get("/")
 async def list_assistants(user: AuthedUser) -> List[Assistant]:
     """List all assistants for the current user."""
-    return await get_storage().list_assistants(user["user_id"])
+    assistants = await get_storage().list_assistants(user["user_id"])
+    return assistants
 
 
-@router.get("/public/")
-async def list_public_assistants(
-    shared_id: Annotated[
-        Optional[str], Query(description="ID of a publicly shared assistant.")
-    ] = None,
-) -> List[Assistant]:
-    """List all public assistants."""
-    return await get_storage().list_public_assistants(
-        FEATURED_PUBLIC_ASSISTANTS + ([shared_id] if shared_id else [])
-    )
+# @router.get("/public/")
+# async def list_public_assistants(
+#     shared_id: Annotated[
+#         Optional[str], Query(description="ID of a publicly shared assistant.")
+#     ] = None,
+# ) -> List[Assistant]:
+#     """List all public assistants."""
+#     return await get_storage().list_public_assistants(
+#         FEATURED_PUBLIC_ASSISTANTS + ([shared_id] if shared_id else [])
+#     )
 
 
 @router.get("/{aid}")
