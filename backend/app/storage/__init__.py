@@ -1,12 +1,12 @@
 import pickle
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional, Sequence, Union, Dict
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from langchain_core.messages import AnyMessage, BaseMessage
-from langgraph.checkpoint import Checkpoint, BaseCheckpointSaver
+from langgraph.checkpoint import BaseCheckpointSaver, Checkpoint
 
 from app.agent_types.constants import FINISH_NODE_KEY
-from app.schema import Assistant, Thread, User, UploadedFile
+from app.schema import Assistant, Thread, UploadedFile, User
 
 
 class BaseStorage(ABC):
@@ -26,7 +26,9 @@ class BaseStorage(ABC):
         pass
 
     @abstractmethod
-    async def get_assistant(self, user_id: str, assistant_id: str) -> Optional[Assistant]:
+    async def get_assistant(
+        self, user_id: str, assistant_id: str
+    ) -> Optional[Assistant]:
         """Get an assistant by ID."""
         pass
 
@@ -37,14 +39,14 @@ class BaseStorage(ABC):
 
     @abstractmethod
     async def put_assistant(
-            self,
-            user_id: str,
-            assistant_id: str,
-            *,
-            name: str,
-            config: dict,
-            public: bool = False,
-            metadata: Optional[dict]
+        self,
+        user_id: str,
+        assistant_id: str,
+        *,
+        name: str,
+        config: dict,
+        public: bool = False,
+        metadata: Optional[dict],
     ) -> Assistant:
         """Modify an assistant."""
         pass
@@ -76,15 +78,14 @@ class BaseStorage(ABC):
 
     @abstractmethod
     async def update_thread_state(
-            self,
-            user_id: str,
-            thread_id: str,
-            values: Union[Sequence[AnyMessage], Dict[str, Any]],
-            as_node: Optional[str] = FINISH_NODE_KEY,
+        self,
+        user_id: str,
+        thread_id: str,
+        values: Union[Sequence[AnyMessage], Dict[str, Any]],
+        as_node: Optional[str] = FINISH_NODE_KEY,
     ):
         """Add state to a thread."""
         pass
-
 
     @abstractmethod
     async def get_thread_history(self, user_id: str, thread_id: str):
@@ -93,7 +94,13 @@ class BaseStorage(ABC):
 
     @abstractmethod
     async def put_thread(
-        self, user_id: str, thread_id: str, *, assistant_id: str, name: str, metadata: Optional[dict]
+        self,
+        user_id: str,
+        thread_id: str,
+        *,
+        assistant_id: str,
+        name: str,
+        metadata: Optional[dict],
     ) -> Thread:
         """Modify a thread."""
         pass
@@ -128,7 +135,7 @@ class BaseStorage(ABC):
                 SELECT * FROM file_owners
                 WHERE thread_id = ?
                 """,
-                (thread_id,)
+                (thread_id,),
             )
             rows = cursor.fetchall()
             return [
@@ -141,7 +148,6 @@ class BaseStorage(ABC):
                 for row in rows
             ]
 
-
     async def get_file(self, file_path: str) -> Optional[UploadedFile]:
         """Get a file by path."""
         with self._connect() as conn:
@@ -151,7 +157,7 @@ class BaseStorage(ABC):
                 SELECT * FROM file_owners
                 WHERE file_path = ?
                 """,
-                (file_path,)
+                (file_path,),
             )
             row = cursor.fetchone()
             if not row:

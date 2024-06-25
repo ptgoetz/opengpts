@@ -4,28 +4,26 @@ import pickle
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Sequence, Union, Iterator
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Union
 from uuid import uuid4
 
 import structlog
 from langchain_core.messages import AnyMessage
-from langchain_core.runnables import RunnableConfig, ConfigurableFieldSpec
+from langchain_core.runnables import ConfigurableFieldSpec, RunnableConfig
 from langgraph.checkpoint import Checkpoint
-from langgraph.checkpoint.base import CheckpointTuple, CheckpointThreadTs
+from langgraph.checkpoint.base import CheckpointThreadTs, CheckpointTuple
 
 from app.agent import AgentType, get_agent_executor
 from app.agent_types.constants import FINISH_NODE_KEY
+from app.constants import DOMAIN_DATABASE_PATH
 from app.lifespan import get_pg_pool
 from app.schema import Assistant, Thread, UploadedFile, User
-from app.storage import BaseStorage, AbstractCheckpointSaver
-
-from app.constants import DOMAIN_DATABASE_PATH
+from app.storage import BaseStorage
 
 logger = structlog.get_logger()
 
 
 class SqliteStorage(BaseStorage):
-
     @classmethod
     @contextmanager
     def _connect(cls):
@@ -39,7 +37,7 @@ class SqliteStorage(BaseStorage):
     def run_migrations(self):
         db_exists = os.path.exists(DOMAIN_DATABASE_PATH)
         current_dir = os.path.dirname(__file__)
-        migrations_path = os.path.join(current_dir, '../migrations')
+        migrations_path = os.path.join(current_dir, "../migrations")
 
         with self._connect() as conn:
             cursor = conn.cursor()
@@ -47,21 +45,25 @@ class SqliteStorage(BaseStorage):
             current_version = 0
             if db_exists:
                 # Check if migration_version table exists
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT name FROM sqlite_master WHERE type='table' AND name='migration_version';
-                """)
+                """
+                )
                 if cursor.fetchone() is None:
                     # Migration table does not exist, assume version 3
                     current_version = 3
                 else:
                     # Get the current migration version
-                    cursor.execute("SELECT MAX(version) AS version FROM migration_version;")
+                    cursor.execute(
+                        "SELECT MAX(version) AS version FROM migration_version;"
+                    )
                     current_version = cursor.fetchone()["version"]
 
             # List and sort migration files
             migration_files = sorted(
-                (f for f in os.listdir(migrations_path) if f.endswith('.up.sql')),
-                key=lambda x: int(x.split('_')[0])
+                (f for f in os.listdir(migrations_path) if f.endswith(".up.sql")),
+                key=lambda x: int(x.split("_")[0]),
             )
 
             logger.info(f"Migrations found: {migration_files}")
@@ -69,13 +71,17 @@ class SqliteStorage(BaseStorage):
 
             # Apply migrations that are newer than the current version
             for migration in migration_files:
-                version = int(migration.split('_')[0])
+                version = int(migration.split("_")[0])
                 if version > current_version:
                     logger.info(f"Applying migration {migration}")
-                    with open(os.path.join(migrations_path, migration), 'r') as f:
+                    with open(os.path.join(migrations_path, migration), "r") as f:
                         conn.executescript(f.read())
-                        current_version = version  # Update current version after successful migration
-            cursor.execute("INSERT INTO migration_version (version) VALUES (?);", (version,))
+                        current_version = (
+                            version  # Update current version after successful migration
+                        )
+            cursor.execute(
+                "INSERT INTO migration_version (version) VALUES (?);", (version,)
+            )
             conn.commit()
 
     async def list_assistants(self, user_id: str) -> List[Assistant]:
@@ -104,7 +110,6 @@ class SqliteStorage(BaseStorage):
                 assistants.append(assistant)
 
             return assistants
-
 
     def list_all_assistants(self) -> List[Assistant]:
         """List all assistants for all users."""
@@ -172,14 +177,14 @@ class SqliteStorage(BaseStorage):
     #         return [Assistant(**dict(row)) for row in rows]
 
     def put_assistant(
-            self,
-            user_id: str,
-            assistant_id: str,
-            *,
-            name: str,
-            config: dict,
-            public: bool = False,
-            metadata: Optional[dict]
+        self,
+        user_id: str,
+        assistant_id: str,
+        *,
+        name: str,
+        config: dict,
+        public: bool = False,
+        metadata: Optional[dict],
     ) -> Assistant:
         """Modify an assistant."""
         updated_at = datetime.now(timezone.utc)
@@ -200,7 +205,15 @@ class SqliteStorage(BaseStorage):
                     public = EXCLUDED.public,
                     metadata = EXCLUDED.metadata
                 """,
-                (assistant_id, user_id, name, config_str, updated_at.isoformat(), public, json.dumps(metadata)),
+                (
+                    assistant_id,
+                    user_id,
+                    name,
+                    config_str,
+                    updated_at.isoformat(),
+                    public,
+                    json.dumps(metadata),
+                ),
             )
             conn.commit()
             return Assistant(
@@ -276,11 +289,11 @@ class SqliteStorage(BaseStorage):
         }
 
     def update_thread_state(
-            self,
-            user_id: str,
-            thread_id: str,
-            values: Union[Sequence[AnyMessage], Dict[str, Any]],
-            as_node: Optional[str] = FINISH_NODE_KEY,
+        self,
+        user_id: str,
+        thread_id: str,
+        values: Union[Sequence[AnyMessage], Dict[str, Any]],
+        as_node: Optional[str] = FINISH_NODE_KEY,
     ):
         """Add state to a thread."""
         app = get_agent_executor([], AgentType.GPT_35_TURBO, "", False)
@@ -304,7 +317,13 @@ class SqliteStorage(BaseStorage):
         ]
 
     def put_thread(
-        self, user_id: str, thread_id: str, *, assistant_id: str, name: str, metadata: Optional[dict]
+        self,
+        user_id: str,
+        thread_id: str,
+        *,
+        assistant_id: str,
+        name: str,
+        metadata: Optional[dict],
     ) -> Thread:
         """Modify a thread."""
         updated_at = datetime.now(timezone.utc)
@@ -322,7 +341,14 @@ class SqliteStorage(BaseStorage):
                     updated_at = EXCLUDED.updated_at,
                     metadata = EXCLUDED.metadata
                 """,
-                (thread_id, user_id, assistant_id, name, updated_at, json.dumps(metadata)),
+                (
+                    thread_id,
+                    user_id,
+                    assistant_id,
+                    name,
+                    updated_at,
+                    json.dumps(metadata),
+                ),
             )
             conn.commit()
             return {
@@ -397,7 +423,7 @@ class SqliteStorage(BaseStorage):
                 SELECT * FROM file_owners
                 WHERE assistant_id = ?
                 """,
-                (assistant_id,)
+                (assistant_id,),
             )
             rows = cursor.fetchall()
             return [
@@ -419,7 +445,7 @@ class SqliteStorage(BaseStorage):
                 SELECT * FROM file_owners
                 WHERE thread_id = ?
                 """,
-                (thread_id,)
+                (thread_id,),
             )
             rows = cursor.fetchall()
             return [
@@ -441,7 +467,7 @@ class SqliteStorage(BaseStorage):
                 SELECT * FROM file_owners
                 WHERE file_path = ?
                 """,
-                (file_path,)
+                (file_path,),
             )
             row = cursor.fetchone()
             if not row:

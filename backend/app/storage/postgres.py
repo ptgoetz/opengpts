@@ -1,17 +1,17 @@
 from datetime import datetime, timezone
-from typing import Any, List, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from langchain_core.messages import AnyMessage
 from langchain_core.runnables import RunnableConfig
 
-from app.agent import agent, get_agent_executor, AgentType
+from app.agent import AgentType, agent, get_agent_executor
+from app.agent_types.constants import FINISH_NODE_KEY
 from app.lifespan import get_pg_pool
-from app.schema import Assistant, Thread, User, UploadedFile
+from app.schema import Assistant, Thread, UploadedFile, User
 from app.storage import BaseStorage
 
 
 class PostgresStorage(BaseStorage):
-
     async def list_all_assistants(self) -> List[Assistant]:
         raise NotImplementedError
 
@@ -30,8 +30,15 @@ class PostgresStorage(BaseStorage):
     async def get_file(self, file_path: str) -> Optional[UploadedFile]:
         raise NotImplementedError
 
-    async def put_file_owner(self, file_id: str, file_path: str, file_hash: str, embedded: bool,
-                             assistant_id: Optional[str], thread_id: Optional[str]) -> UploadedFile:
+    async def put_file_owner(
+        self,
+        file_id: str,
+        file_path: str,
+        file_hash: str,
+        embedded: bool,
+        assistant_id: Optional[str],
+        thread_id: Optional[str],
+    ) -> UploadedFile:
         raise NotImplementedError
 
     async def run_migrations(self):
@@ -40,14 +47,16 @@ class PostgresStorage(BaseStorage):
     async def list_assistants(self, user_id: str) -> List[Assistant]:
         """List all assistants for the current user."""
         async with get_pg_pool().acquire() as conn:
-            return await conn.fetch("SELECT * FROM assistant WHERE user_id = $1", user_id)
+            return await conn.fetch(
+                "SELECT * FROM assistant WHERE user_id = $1", user_id
+            )
 
     async def get_assistant(
         self, user_id: str, assistant_id: str
     ) -> Optional[Assistant]:
         """Get an assistant by ID."""
         async with get_pg_pool().acquire() as conn:
-            row =  await conn.fetchrow(
+            row = await conn.fetchrow(
                 "SELECT * FROM assistant WHERE assistant_id = $1 AND (user_id = $2 OR public IS true)",
                 assistant_id,
                 user_id,
@@ -67,13 +76,15 @@ class PostgresStorage(BaseStorage):
             )
             return Assistant(**assistant_data)
 
-    async def list_public_assistants(self, assistant_ids: Sequence[str]) -> List[Assistant]:
+    async def list_public_assistants(
+        self, assistant_ids: Sequence[str]
+    ) -> List[Assistant]:
         """List all the public assistants."""
         assistant_ids_tuple = tuple(
             assistant_ids
         )  # SQL requires a tuple for the IN operator.
         placeholders = ", ".join("?" for _ in assistant_ids)
-        conn =  get_pg_pool().acquire()
+        conn = get_pg_pool().acquire()
         cursor = conn.cursor()
         cursor.execute(
             f"SELECT * FROM assistant WHERE assistant_id IN ({placeholders}) AND public = 1",
@@ -90,7 +101,7 @@ class PostgresStorage(BaseStorage):
         name: str,
         config: dict,
         public: bool = False,
-        metadata: Optional[dict]
+        metadata: Optional[dict],
     ) -> Assistant:
         """Modify an assistant.
 
@@ -106,28 +117,28 @@ class PostgresStorage(BaseStorage):
             return the assistant model if no exception is raised.
         """
         updated_at = datetime.now(timezone.utc)
-        conn =  get_pg_pool().acquire()
+        conn = get_pg_pool().acquire()
         async with get_pg_pool().acquire() as conn:
             async with conn.transaction():
                 await conn.execute(
-                (
-                    "INSERT INTO assistant (assistant_id, user_id, name, config, updated_at, public, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7) "
-                    "ON CONFLICT (assistant_id) DO UPDATE SET "
-                    "user_id = EXCLUDED.user_id, "
-                    "name = EXCLUDED.name, "
-                    "config = EXCLUDED.config, "
-                    "updated_at = EXCLUDED.updated_at, "
-                    "public = EXCLUDED.public,"
-                    "metadata = EXCLUDED.metadata;"
-                ),
-                assistant_id,
-                user_id,
-                name,
-                config,
-                updated_at,
-                public,
-                metadata,
-            )
+                    (
+                        "INSERT INTO assistant (assistant_id, user_id, name, config, updated_at, public, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7) "
+                        "ON CONFLICT (assistant_id) DO UPDATE SET "
+                        "user_id = EXCLUDED.user_id, "
+                        "name = EXCLUDED.name, "
+                        "config = EXCLUDED.config, "
+                        "updated_at = EXCLUDED.updated_at, "
+                        "public = EXCLUDED.public,"
+                        "metadata = EXCLUDED.metadata;"
+                    ),
+                    assistant_id,
+                    user_id,
+                    name,
+                    config,
+                    updated_at,
+                    public,
+                    metadata,
+                )
         return {
             "assistant_id": assistant_id,
             "user_id": user_id,
@@ -140,7 +151,7 @@ class PostgresStorage(BaseStorage):
 
     async def delete_assistant(self, user_id: str, assistant_id: str) -> None:
         """Delete an assistant by ID."""
-        conn =  get_pg_pool().acquire()
+        conn = get_pg_pool().acquire()
         conn.execute(
             "DELETE FROM assistant WHERE assistant_id = $1 AND user_id = $2",
             assistant_id,
@@ -161,19 +172,10 @@ class PostgresStorage(BaseStorage):
                 user_id,
             )
 
-    async def get_thread_state(
-        self, *, user_id: str, thread_id: str, assistant: Assistant
-    ):
+    async def get_thread_state(self, user_id: str, thread_id: str):
         """Get state for a thread."""
-        state = await agent.aget_state(
-            {
-                "configurable": {
-                    **assistant["config"]["configurable"],
-                    "thread_id": thread_id,
-                    "assistant_id": assistant["assistant_id"],
-                }
-            }
-        )
+        app = await get_agent_executor([], AgentType.GPT_35_TURBO, "", False)
+        state = await app.get_state({"configurable": {"thread_id": thread_id}})
         return {
             "values": state.values,
             "next": state.next,
@@ -181,22 +183,17 @@ class PostgresStorage(BaseStorage):
 
     async def update_thread_state(
         self,
-        config: RunnableConfig,
-        values: Union[Sequence[AnyMessage], dict[str, Any]],
-        *,
         user_id: str,
-        assistant: Assistant,
+        thread_id: str,
+        values: Union[Sequence[AnyMessage], Dict[str, Any]],
+        as_node: Optional[str] = FINISH_NODE_KEY,
     ):
         """Add state to a thread."""
-        await agent.aupdate_state(
-            {
-                "configurable": {
-                    **assistant["config"]["configurable"],
-                    **config["configurable"],
-                    "assistant_id": assistant["assistant_id"],
-                }
-            },
+        app = get_agent_executor([], AgentType.GPT_35_TURBO, "", False)
+        await app.update_state(
+            {"configurable": {"thread_id": thread_id}},
             values,
+            as_node=as_node,
         )
 
     async def get_thread_history(self, user_id: str, thread_id: str):
@@ -204,18 +201,28 @@ class PostgresStorage(BaseStorage):
         app = await get_agent_executor([], AgentType.GPT_35_TURBO, "", False)
 
         history = []
-        async for c in app.get_state_history({"configurable": {"thread_id": thread_id}}):
-            history.append({
-                "values": c.values,
-                "next": c.next,
-                "config": c.config,
-                "parent": c.parent_config,
-            })
+        async for c in app.get_state_history(
+            {"configurable": {"thread_id": thread_id}}
+        ):
+            history.append(
+                {
+                    "values": c.values,
+                    "next": c.next,
+                    "config": c.config,
+                    "parent": c.parent_config,
+                }
+            )
 
         return history
 
     async def put_thread(
-        self, user_id: str, thread_id: str, *, assistant_id: str, name: str, metadata: Optional[dict]
+        self,
+        user_id: str,
+        thread_id: str,
+        *,
+        assistant_id: str,
+        name: str,
+        metadata: Optional[dict],
     ) -> Thread:
         """Modify a thread."""
         updated_at = datetime.now(timezone.utc)

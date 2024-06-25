@@ -6,10 +6,10 @@ from fastapi import APIRouter, HTTPException, Path, Query
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 
-from app.storage.option import get_storage
 from app.agent import agent
 from app.auth.handlers import AuthedUser
 from app.schema import Assistant, UploadedFile
+from app.storage.option import get_storage
 
 logger = structlog.get_logger(__name__)
 

@@ -39,7 +39,8 @@ class JWTSettingsLocal(JWTSettingsBase):
         return b64decode(values["decode_key_b64"]).decode("utf-8")
 
 
-class JWTSettingsOIDC(JWTSettingsBase): ...
+class JWTSettingsOIDC(JWTSettingsBase):
+    ...
 
 
 class Settings(BaseSettings):

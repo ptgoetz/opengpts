@@ -1,11 +1,17 @@
+import os
 import pickle
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Optional, AsyncIterator, Dict, Iterator
+from typing import AsyncIterator, Dict, Iterator, Optional
 
 from langchain_core.runnables import ConfigurableFieldSpec, RunnableConfig
-from langgraph.checkpoint import CheckpointAt, BaseCheckpointSaver, Checkpoint, SerializerProtocol
+from langgraph.checkpoint import (
+    BaseCheckpointSaver,
+    Checkpoint,
+    CheckpointAt,
+    SerializerProtocol,
+)
 from langgraph.checkpoint.base import CheckpointThreadTs, CheckpointTuple
 
 from app.constants import DOMAIN_DATABASE_PATH
@@ -14,11 +20,16 @@ from app.lifespan import get_pg_pool
 
 class AbstractCheckpointSaver(BaseCheckpointSaver):
     """Abstract class for checkpoint savers."""
+
     def loads(self, value: bytes) -> Checkpoint:
         loaded: Checkpoint = pickle.loads(value)
         for key, value in loaded["channel_values"].items():
-            if isinstance(value, list) and all(isinstance(v, BaseMessage) for v in value):
-                loaded["channel_values"][key] = [v.__class__(**v.__dict__) for v in value]
+            if isinstance(value, list) and all(
+                isinstance(v, BaseMessage) for v in value
+            ):
+                loaded["channel_values"][key] = [
+                    v.__class__(**v.__dict__) for v in value
+                ]
         return loaded
 
 
@@ -45,8 +56,15 @@ class PostgresCheckpoint(AbstractCheckpointSaver):
             CheckpointThreadTs,
         ]
 
-    def get(self, config: RunnableConfig) -> Optional[Checkpoint]:
-        raise NotImplementedError
+    async def get(self, config: RunnableConfig) -> Optional[Checkpoint]:
+        print(config)
+        thread_id = config["configurable"]["thread_id"]
+        async with get_pg_pool().acquire() as db, db.transaction():
+            if value := await db.fetchrow(
+                "SELECT checkpoint FROM checkpoints WHERE thread_id = $1 ORDER BY thread_ts DESC LIMIT 1",
+                thread_id,
+            ):
+                return self.loads(value[0])
 
     def put(self, config: RunnableConfig, checkpoint: Checkpoint) -> RunnableConfig:
         raise NotImplementedError
@@ -78,7 +96,6 @@ class PostgresCheckpoint(AbstractCheckpointSaver):
 
     def list(self, config: RunnableConfig) -> AsyncIterator[CheckpointTuple]:
         return self.alist(config)
-
 
     async def aget_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
         thread_id = config["configurable"]["thread_id"]
@@ -158,9 +175,11 @@ def _connect():
     finally:
         conn.close()
 
+
 class SQLiteCheckpoint(AbstractCheckpointSaver):
-    class Config:
-        arbitrary_types_allowed = True
+
+    serde = None
+
 
     @property
     def config_specs(self) -> list[ConfigurableFieldSpec]:
@@ -294,20 +313,19 @@ class SQLiteCheckpoint(AbstractCheckpointSaver):
         }
 
 
-
-
-
-
-
-
-
-
-
 _checkpointer = None
 
 
 def get_checkpointer() -> AbstractCheckpointSaver:
+    db_type = os.environ.get("S4_AGENT_SERVER_DB_TYPE", "postgres")
     global _checkpointer
     if _checkpointer is None:
-        _checkpointer = PostgresCheckpoint(serde=pickle, at=CheckpointAt.END_OF_STEP)
+        if db_type == "postgres":
+            _checkpointer = PostgresCheckpoint(
+                serde=pickle, at=CheckpointAt.END_OF_STEP
+            )
+        elif db_type == "sqlite":
+            _checkpointer = SQLiteCheckpoint()
+        else:
+            raise ValueError(f"Invalid storage type: {db_type}")
     return _checkpointer

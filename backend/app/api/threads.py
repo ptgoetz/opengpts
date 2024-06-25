@@ -6,9 +6,9 @@ from langchain.schema.messages import AnyMessage
 from langchain_core.messages import AIMessage
 from pydantic import BaseModel, Field
 
-from app.storage.option import get_storage
 from app.auth.handlers import AuthedUser
 from app.schema import Thread, UploadedFile
+from app.storage.option import get_storage
 
 router = APIRouter()
 
@@ -65,10 +65,10 @@ async def add_thread_state(
     payload: ThreadStatePostRequest,
 ):
     """Add state to a thread."""
-    thread = get_storage().get_thread(user["user_id"], tid)
+    thread = await get_storage().get_thread(user["user_id"], tid)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
-    return get_storage().update_thread_state(user["user_id"], tid, payload.values)
+    return await get_storage().update_thread_state(user["user_id"], tid, payload.values)
 
 
 @router.get("/{tid}/history")

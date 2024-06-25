@@ -20,7 +20,7 @@ from langgraph.checkpoint.base import (
 )
 from redis.client import Redis as RedisType
 
-from app.checkpoint import PostgresCheckpoint
+from app.storage.postgres import PostgresCheckpoint
 from app.lifespan import get_pg_pool, lifespan
 from app.server import app
 
