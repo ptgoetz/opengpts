@@ -42,7 +42,7 @@ class ThreadStatePostRequest(BaseModel):
 @router.get("/")
 async def list_threads(user: AuthedUser) -> List[Thread]:
     """List all threads for the current user."""
-    return get_storage().list_threads(user["user_id"])
+    return await get_storage().list_threads(user["user_id"])
 
 
 @router.get("/{tid}/state")
@@ -77,8 +77,8 @@ async def get_thread_history(
     tid: ThreadID,
 ):
     """Get all past states for a thread."""
-    thread = get_storage().get_thread(user["user_id"], tid)
-    history = get_storage().get_thread_history(user["user_id"], tid)
+    thread = await get_storage().get_thread(user["user_id"], tid)
+    history = await get_storage().get_thread_history(user_id=user["user_id"], thread_id=tid)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
     return history
@@ -90,7 +90,7 @@ async def get_thread(
     tid: ThreadID,
 ) -> Thread:
     """Get a thread by ID."""
-    thread = get_storage().get_thread(user["user_id"], tid)
+    thread = await get_storage().get_thread(user["user_id"], tid)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
     return thread
@@ -111,7 +111,7 @@ async def create_thread(
     )
     if payload.starting_message is not None:
         message = AIMessage(id=str(uuid4()), content=payload.starting_message)
-        get_storage().update_thread_state(
+        thread = await get_storage().update_thread_state(
             user_id=user["user_id"],
             thread_id=thread["thread_id"],
             values={"messages": [message]},
@@ -129,7 +129,7 @@ async def upsert_thread(
     thread = get_storage().get_thread(user["user_id"], tid)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
-    return get_storage().put_thread(
+    return await get_storage().put_thread(
         user["user_id"],
         tid,
         assistant_id=payload.assistant_id,
@@ -157,4 +157,4 @@ async def get_thread_files(
     thread = get_storage().get_thread(user["user_id"], tid)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
-    return get_storage().get_thread_files(tid)
+    return await get_storage().get_thread_files(tid)

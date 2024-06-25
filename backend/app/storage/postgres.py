@@ -5,7 +5,7 @@ from typing import Any, List, Optional, Sequence, Union
 from langchain_core.messages import AnyMessage
 from langchain_core.runnables import RunnableConfig
 
-from app.agent import agent
+from app.agent import agent, get_agent_executor, AgentType
 from app.lifespan import get_pg_pool
 from app.schema import Assistant, Thread, User, UploadedFile
 from app.storage import BaseStorage
@@ -150,12 +150,12 @@ class PostgresStorage(BaseStorage):
 
     async def list_threads(self, user_id: str) -> List[Thread]:
         """List all threads for the current user."""
-        with get_pg_pool().acquire() as conn:
+        async with get_pg_pool().acquire() as conn:
             return conn.fetch("SELECT * FROM thread WHERE user_id = $1", user_id)
 
     async def get_thread(self, user_id: str, thread_id: str) -> Optional[Thread]:
         """Get a thread by ID."""
-        with get_pg_pool().acquire() as conn:
+        async with get_pg_pool().acquire() as conn:
             return conn.fetchrow(
                 "SELECT * FROM thread WHERE thread_id = $1 AND user_id = $2",
                 thread_id,
@@ -200,10 +200,9 @@ class PostgresStorage(BaseStorage):
             values,
         )
 
-    async def get_thread_history(
-        self, *, user_id: str, thread_id: str, assistant: Assistant
-    ):
+    async def get_thread_history(self, user_id: str, thread_id: str):
         """Get the history of a thread."""
+        app = get_agent_executor([], AgentType.GPT_35_TURBO, "", False)
         return [
             {
                 "values": c.values,
@@ -211,15 +210,7 @@ class PostgresStorage(BaseStorage):
                 "config": c.config,
                 "parent": c.parent_config,
             }
-            for c in agent.aget_state_history(
-                {
-                    "configurable": {
-                        **assistant["config"]["configurable"],
-                        "thread_id": thread_id,
-                        "assistant_id": assistant["assistant_id"],
-                    }
-                }
-            )
+            for c in app.get_state_history({"configurable": {"thread_id": thread_id}})
         ]
 
     async def put_thread(
