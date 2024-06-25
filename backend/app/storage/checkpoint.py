@@ -2,32 +2,27 @@ import pickle
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
-from typing import AsyncIterator, Optional, Iterator, Dict
+from typing import Optional, AsyncIterator, Dict, Iterator
 
-from langchain_core.messages import BaseMessage
 from langchain_core.runnables import ConfigurableFieldSpec, RunnableConfig
-from langgraph.checkpoint import BaseCheckpointSaver
-from langgraph.checkpoint.base import (
-    Checkpoint,
-    CheckpointAt,
-    CheckpointThreadTs,
-    CheckpointTuple,
-    SerializerProtocol,
-)
+from langgraph.checkpoint import CheckpointAt, BaseCheckpointSaver, Checkpoint, SerializerProtocol
+from langgraph.checkpoint.base import CheckpointThreadTs, CheckpointTuple
 
 from app.constants import DOMAIN_DATABASE_PATH
 from app.lifespan import get_pg_pool
 
 
-def loads(value: bytes) -> Checkpoint:
-    loaded: Checkpoint = pickle.loads(value)
-    for key, value in loaded["channel_values"].items():
-        if isinstance(value, list) and all(isinstance(v, BaseMessage) for v in value):
-            loaded["channel_values"][key] = [v.__class__(**v.__dict__) for v in value]
-    return loaded
+class AbstractCheckpointSaver(BaseCheckpointSaver):
+    """Abstract class for checkpoint savers."""
+    def loads(self, value: bytes) -> Checkpoint:
+        loaded: Checkpoint = pickle.loads(value)
+        for key, value in loaded["channel_values"].items():
+            if isinstance(value, list) and all(isinstance(v, BaseMessage) for v in value):
+                loaded["channel_values"][key] = [v.__class__(**v.__dict__) for v in value]
+        return loaded
 
 
-class PostgresCheckpoint(BaseCheckpointSaver):
+class PostgresCheckpoint(AbstractCheckpointSaver):
     def __init__(
         self,
         *,
@@ -70,7 +65,7 @@ class PostgresCheckpoint(BaseCheckpointSaver):
                             "thread_ts": value[1],
                         }
                     },
-                    loads(value[0]),
+                    self.loads(value[0]),
                     {
                         "configurable": {
                             "thread_id": thread_id,
@@ -80,6 +75,10 @@ class PostgresCheckpoint(BaseCheckpointSaver):
                     if value[2]
                     else None,
                 )
+
+    def list(self, config: RunnableConfig) -> AsyncIterator[CheckpointTuple]:
+        return self.alist(config)
+
 
     async def aget_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
         thread_id = config["configurable"]["thread_id"]
@@ -93,7 +92,7 @@ class PostgresCheckpoint(BaseCheckpointSaver):
                 ):
                     return CheckpointTuple(
                         config,
-                        loads(value[0]),
+                        self.loads(value[0]),
                         {
                             "configurable": {
                                 "thread_id": thread_id,
@@ -115,7 +114,7 @@ class PostgresCheckpoint(BaseCheckpointSaver):
                                 "thread_ts": value[1],
                             }
                         },
-                        loads(value[0]),
+                        self.loads(value[0]),
                         {
                             "configurable": {
                                 "thread_id": thread_id,
@@ -149,6 +148,7 @@ class PostgresCheckpoint(BaseCheckpointSaver):
             }
         }
 
+
 @contextmanager
 def _connect():
     conn = sqlite3.connect(DOMAIN_DATABASE_PATH)
@@ -158,7 +158,7 @@ def _connect():
     finally:
         conn.close()
 
-class SQLiteCheckpoint(BaseCheckpointSaver):
+class SQLiteCheckpoint(AbstractCheckpointSaver):
     class Config:
         arbitrary_types_allowed = True
 
@@ -211,7 +211,7 @@ class SQLiteCheckpoint(BaseCheckpointSaver):
                 if value := cur.fetchone():
                     return CheckpointTuple(
                         config,
-                        loads(value[0]),
+                        self.loads(value[0]),
                         {
                             "configurable": {
                                 "thread_id": config["configurable"]["thread_id"],
@@ -234,7 +234,7 @@ class SQLiteCheckpoint(BaseCheckpointSaver):
                                 "thread_ts": value[1],
                             }
                         },
-                        loads(value[3]),
+                        self.loads(value[3]),
                         {
                             "configurable": {
                                 "thread_id": value[0],
@@ -254,7 +254,7 @@ class SQLiteCheckpoint(BaseCheckpointSaver):
             for thread_id, thread_ts, parent_ts, value in cur:
                 yield CheckpointTuple(
                     {"configurable": {"thread_id": thread_id, "thread_ts": thread_ts}},
-                    loads(value),
+                    self.loads(value),
                     {
                         "configurable": {
                             "thread_id": thread_id,
@@ -292,3 +292,22 @@ class SQLiteCheckpoint(BaseCheckpointSaver):
                 "thread_ts": checkpoint["ts"],
             }
         }
+
+
+
+
+
+
+
+
+
+
+
+_checkpointer = None
+
+
+def get_checkpointer() -> AbstractCheckpointSaver:
+    global _checkpointer
+    if _checkpointer is None:
+        _checkpointer = PostgresCheckpoint(serde=pickle, at=CheckpointAt.END_OF_STEP)
+    return _checkpointer

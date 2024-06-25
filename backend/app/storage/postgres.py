@@ -1,4 +1,3 @@
-import json
 from datetime import datetime, timezone
 from typing import Any, List, Optional, Sequence, Union
 
@@ -156,7 +155,7 @@ class PostgresStorage(BaseStorage):
     async def get_thread(self, user_id: str, thread_id: str) -> Optional[Thread]:
         """Get a thread by ID."""
         async with get_pg_pool().acquire() as conn:
-            return conn.fetchrow(
+            return await conn.fetchrow(
                 "SELECT * FROM thread WHERE thread_id = $1 AND user_id = $2",
                 thread_id,
                 user_id,
@@ -166,7 +165,7 @@ class PostgresStorage(BaseStorage):
         self, *, user_id: str, thread_id: str, assistant: Assistant
     ):
         """Get state for a thread."""
-        state = agent.aget_state(
+        state = await agent.aget_state(
             {
                 "configurable": {
                     **assistant["config"]["configurable"],
@@ -189,7 +188,7 @@ class PostgresStorage(BaseStorage):
         assistant: Assistant,
     ):
         """Add state to a thread."""
-        agent.aupdate_state(
+        await agent.aupdate_state(
             {
                 "configurable": {
                     **assistant["config"]["configurable"],
@@ -202,16 +201,18 @@ class PostgresStorage(BaseStorage):
 
     async def get_thread_history(self, user_id: str, thread_id: str):
         """Get the history of a thread."""
-        app = get_agent_executor([], AgentType.GPT_35_TURBO, "", False)
-        return [
-            {
+        app = await get_agent_executor([], AgentType.GPT_35_TURBO, "", False)
+
+        history = []
+        async for c in app.get_state_history({"configurable": {"thread_id": thread_id}}):
+            history.append({
                 "values": c.values,
                 "next": c.next,
                 "config": c.config,
                 "parent": c.parent_config,
-            }
-            for c in app.get_state_history({"configurable": {"thread_id": thread_id}})
-        ]
+            })
+
+        return history
 
     async def put_thread(
         self, user_id: str, thread_id: str, *, assistant_id: str, name: str, metadata: Optional[dict]

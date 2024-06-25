@@ -78,7 +78,7 @@ async def get_thread_history(
 ):
     """Get all past states for a thread."""
     thread = await get_storage().get_thread(user["user_id"], tid)
-    history = await get_storage().get_thread_history(user_id=user["user_id"], thread_id=tid)
+    history = get_storage().get_thread_history(user_id=user["user_id"], thread_id=tid)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
     return history
@@ -102,7 +102,7 @@ async def create_thread(
     payload: ThreadPostRequest,
 ) -> Thread:
     """Create a thread."""
-    thread = get_storage().put_thread(
+    thread = await get_storage().put_thread(
         user["user_id"],
         str(uuid4()),
         assistant_id=payload.assistant_id,
@@ -126,7 +126,7 @@ async def upsert_thread(
     payload: ThreadPutRequest,
 ) -> Thread:
     """Update a thread."""
-    thread = get_storage().get_thread(user["user_id"], tid)
+    thread = await get_storage().get_thread(user["user_id"], tid)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
     return await get_storage().put_thread(
@@ -154,7 +154,7 @@ async def get_thread_files(
     tid: ThreadID,
 ) -> List[UploadedFile]:
     """Get a list of files associated with a thread."""
-    thread = get_storage().get_thread(user["user_id"], tid)
+    thread = await get_storage().get_thread(user["user_id"], tid)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
     return await get_storage().get_thread_files(tid)
