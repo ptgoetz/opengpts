@@ -58,6 +58,7 @@ async def get_thread_state(
     return state
 
 
+# TODO Check for usage and remove if not used
 @router.post("/{tid}/state")
 async def add_thread_state(
     user: AuthedUser,
