@@ -122,7 +122,7 @@ async def upsert_assistant(
     payload: AssistantPayload,
 ) -> Assistant:
     """Create or update an assistant."""
-    assistant = get_storage().get_assistant(user["user_id"], aid)
+    assistant = await get_storage().get_assistant(user["user_id"], aid)
     if not assistant:
         raise HTTPException(status_code=404, detail="Assistant not found")
 
@@ -161,7 +161,7 @@ async def get_assistant_files(
     aid: AssistantID,
 ) -> List[UploadedFile]:
     """Get an list of files associated with an assistant."""
-    assistant = get_storage().get_assistant(user["user_id"], aid)
+    assistant = await get_storage().get_assistant(user["user_id"], aid)
     if not assistant:
         raise HTTPException(status_code=404, detail="Assistant not found")
     return await get_storage().get_assistant_files(aid)

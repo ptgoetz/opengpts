@@ -34,11 +34,11 @@ class CreateRunPayload(BaseModel):
 
 
 async def _run_input_and_config(payload: CreateRunPayload, user_id: str):
-    thread = get_storage().get_thread(user_id, payload.thread_id)
+    thread = await get_storage().get_thread(user_id, payload.thread_id)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
 
-    assistant = get_storage().get_assistant(user_id, str(thread["assistant_id"]))
+    assistant = await get_storage().get_assistant(user_id, str(thread["assistant_id"]))
     if not assistant:
         raise HTTPException(status_code=404, detail="Assistant not found")
 
