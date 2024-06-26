@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import AsyncIterator, Dict, Iterator, Optional
 
+from langchain_core.messages import BaseMessage
 from langchain_core.runnables import ConfigurableFieldSpec, RunnableConfig
 from langgraph.checkpoint import (
     BaseCheckpointSaver,
