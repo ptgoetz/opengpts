@@ -24,6 +24,11 @@ logger = structlog.get_logger()
 
 
 class SqliteStorage(BaseStorage):
+
+    def __init__(self):
+        print("Running migrations...")
+        self.run_migrations()
+
     @classmethod
     @contextmanager
     def _connect(cls):
@@ -37,7 +42,7 @@ class SqliteStorage(BaseStorage):
     def run_migrations(self):
         db_exists = os.path.exists(DOMAIN_DATABASE_PATH)
         current_dir = os.path.dirname(__file__)
-        migrations_path = os.path.join(current_dir, "../migrations")
+        migrations_path = os.path.join(current_dir, "../../migrations/sqlite")
 
         with self._connect() as conn:
             cursor = conn.cursor()
@@ -52,7 +57,7 @@ class SqliteStorage(BaseStorage):
                 )
                 if cursor.fetchone() is None:
                     # Migration table does not exist, assume version 3
-                    current_version = 3
+                    current_version = 0
                 else:
                     # Get the current migration version
                     cursor.execute(
@@ -316,7 +321,7 @@ class SqliteStorage(BaseStorage):
             for c in app.get_state_history({"configurable": {"thread_id": thread_id}})
         ]
 
-    def put_thread(
+    async def put_thread(
         self,
         user_id: str,
         thread_id: str,
@@ -360,7 +365,7 @@ class SqliteStorage(BaseStorage):
                 "metadata": metadata,
             }
 
-    def get_or_create_user(self, sub: str) -> tuple[User, bool]:
+    async def get_or_create_user(self, sub: str) -> tuple[User, bool]:
         """Returns a tuple of the user and a boolean indicating whether the user was created."""
         with self._connect() as conn:
             cursor = conn.cursor()
