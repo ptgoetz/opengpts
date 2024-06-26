@@ -51,8 +51,8 @@ async def get_thread_state(
     tid: ThreadID,
 ):
     """Get state for a thread."""
-    thread = get_storage().get_thread(user["user_id"], tid)
-    state = get_storage().get_thread_state(user["user_id"], tid)
+    thread = await get_storage().get_thread(user["user_id"], tid)
+    state = await get_storage().get_thread_state(user["user_id"], tid)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
     return state
