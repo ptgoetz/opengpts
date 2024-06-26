@@ -116,7 +116,7 @@ class SqliteStorage(BaseStorage):
 
             return assistants
 
-    def list_all_assistants(self) -> List[Assistant]:
+    async def list_all_assistants(self) -> List[Assistant]:
         """List all assistants for all users."""
         with self._connect() as conn:
             conn.row_factory = sqlite3.Row
@@ -142,7 +142,7 @@ class SqliteStorage(BaseStorage):
 
             return assistants
 
-    def get_assistant(self, user_id: str, assistant_id: str) -> Optional[Assistant]:
+    async def get_assistant(self, user_id: str, assistant_id: str) -> Optional[Assistant]:
         """Get an assistant by ID."""
         with self._connect() as conn:
             cursor = conn.cursor()
@@ -181,7 +181,7 @@ class SqliteStorage(BaseStorage):
     #         rows = cursor.fetchall()
     #         return [Assistant(**dict(row)) for row in rows]
 
-    def put_assistant(
+    async def put_assistant(
         self,
         user_id: str,
         assistant_id: str,
@@ -231,7 +231,7 @@ class SqliteStorage(BaseStorage):
                 metadata=metadata,
             )
 
-    def assistant_count(self) -> int:
+    async def assistant_count(self) -> int:
         """Get assistant row count"""
         with self._connect() as conn:
             cursor = conn.cursor()
@@ -239,7 +239,7 @@ class SqliteStorage(BaseStorage):
             count = cursor.fetchone()[0]
             return count
 
-    def list_threads(self, user_id: str) -> List[Thread]:
+    async def list_threads(self, user_id: str) -> List[Thread]:
         """List all threads for the current user."""
         with self._connect() as conn:
             cursor = conn.cursor()
@@ -257,7 +257,7 @@ class SqliteStorage(BaseStorage):
                 threads.append(thread)
             return threads
 
-    def get_thread(self, user_id: str, thread_id: str) -> Optional[Thread]:
+    async def get_thread(self, user_id: str, thread_id: str) -> Optional[Thread]:
         """Get a thread by ID."""
         with self._connect() as conn:
             cursor = conn.cursor()
@@ -276,7 +276,7 @@ class SqliteStorage(BaseStorage):
             )
             return Thread(**thread_data)
 
-    def thread_count(self) -> int:
+    async def thread_count(self) -> int:
         """Get thread row count."""
         with self._connect() as conn:
             cursor = conn.cursor()
@@ -284,7 +284,7 @@ class SqliteStorage(BaseStorage):
             count = cursor.fetchone()[0]
             return count
 
-    def get_thread_state(self, user_id: str, thread_id: str):
+    async def get_thread_state(self, user_id: str, thread_id: str):
         """Get state for a thread."""
         app = get_agent_executor([], AgentType.GPT_35_TURBO, "", False)
         state = app.get_state({"configurable": {"thread_id": thread_id}})
@@ -293,7 +293,7 @@ class SqliteStorage(BaseStorage):
             "next": state.next,
         }
 
-    def update_thread_state(
+    async def update_thread_state(
         self,
         user_id: str,
         thread_id: str,
@@ -308,7 +308,7 @@ class SqliteStorage(BaseStorage):
             as_node=as_node,
         )
 
-    def get_thread_history(self, user_id: str, thread_id: str):
+    async def get_thread_history(self, user_id: str, thread_id: str):
         """Get the history of a thread."""
         app = get_agent_executor([], AgentType.GPT_35_TURBO, "", False)
         return [
@@ -399,7 +399,7 @@ class SqliteStorage(BaseStorage):
             )
             return new_user, True
 
-    def delete_thread(self, user_id: str, thread_id: str):
+    async def delete_thread(self, user_id: str, thread_id: str):
         """Delete a thread by ID."""
         with self._connect() as conn:
             cursor = conn.cursor()
@@ -409,7 +409,7 @@ class SqliteStorage(BaseStorage):
             )
             conn.commit()
 
-    def delete_assistant(self, user_id: str, assistant_id: str) -> None:
+    async def delete_assistant(self, user_id: str, assistant_id: str) -> None:
         """Delete an assistant by ID."""
         with self._connect() as conn:
             cursor = conn.cursor()
@@ -419,7 +419,7 @@ class SqliteStorage(BaseStorage):
             )
             conn.commit()
 
-    def get_assistant_files(self, assistant_id: str) -> list[UploadedFile]:
+    async def get_assistant_files(self, assistant_id: str) -> list[UploadedFile]:
         """Get a list of files associated with an assistant."""
         with self._connect() as conn:
             cursor = conn.cursor()
@@ -441,7 +441,7 @@ class SqliteStorage(BaseStorage):
                 for row in rows
             ]
 
-    def get_thread_files(self, thread_id: str) -> list[UploadedFile]:
+    async def get_thread_files(self, thread_id: str) -> list[UploadedFile]:
         """Get a list of files associated with a thread."""
         with self._connect() as conn:
             cursor = conn.cursor()
@@ -463,7 +463,7 @@ class SqliteStorage(BaseStorage):
                 for row in rows
             ]
 
-    def get_file(self, file_path: str) -> Optional[UploadedFile]:
+    async def get_file(self, file_path: str) -> Optional[UploadedFile]:
         """Get a file by path."""
         with self._connect() as conn:
             cursor = conn.cursor()
@@ -484,7 +484,7 @@ class SqliteStorage(BaseStorage):
                 embedded=row["embedded"],
             )
 
-    def put_file_owner(
+    async def put_file_owner(
         self,
         file_id: str,
         file_path: str,
