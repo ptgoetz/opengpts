@@ -1,20 +1,28 @@
-from typing import cast
+import operator
+from typing import Annotated, cast
+from uuid import uuid4
 
 from langchain.tools import BaseTool
 from langchain_core.language_models.base import LanguageModelLike
 from langchain_core.messages import (
     AIMessage,
+    BaseMessage,
     FunctionMessage,
     HumanMessage,
     SystemMessage,
     ToolMessage,
 )
+from langchain_core.pydantic_v1 import BaseModel
 from langgraph.checkpoint import BaseCheckpointSaver
-from langgraph.graph import END
-from langgraph.graph.message import MessageGraph
+from langgraph.graph import StateGraph
 from langgraph.prebuilt import ToolExecutor, ToolInvocation
 
+from app.agent_types.constants import FINISH_NODE_ACTION, FINISH_NODE_KEY
 from app.message_types import LiberalToolMessage
+
+
+class AgentState(BaseModel):
+    messages: Annotated[list[BaseMessage], operator.add]
 
 
 def get_tools_agent_executor(
@@ -24,7 +32,7 @@ def get_tools_agent_executor(
     interrupt_before_action: bool,
     checkpoint: BaseCheckpointSaver,
 ):
-    async def _get_messages(messages):
+    def _get_messages(messages):
         msgs = []
         for m in messages:
             if isinstance(m, LiberalToolMessage):
@@ -44,12 +52,15 @@ def get_tools_agent_executor(
         llm_with_tools = llm.bind_tools(tools)
     else:
         llm_with_tools = llm
-    agent = _get_messages | llm_with_tools
     tool_executor = ToolExecutor(tools)
 
+    async def agent(state: AgentState):
+        response = await llm_with_tools.ainvoke(_get_messages(state.messages))
+        return {"messages": [response]}
+
     # Define the function that determines whether to continue or not
-    def should_continue(messages):
-        last_message = messages[-1]
+    def should_continue(state: AgentState):
+        last_message = state.messages[-1]
         # If there is no function call, then we finish
         if not last_message.tool_calls:
             return "end"
@@ -58,11 +69,11 @@ def get_tools_agent_executor(
             return "continue"
 
     # Define the function to execute tools
-    async def call_tool(messages):
+    async def call_tool(state: AgentState):
         actions: list[ToolInvocation] = []
         # Based on the continue condition
         # we know the last message involves a function call
-        last_message = cast(AIMessage, messages[-1])
+        last_message = cast(AIMessage, state.messages[-1])
         for tool_call in last_message.tool_calls:
             # We construct a ToolInvocation from the function_call
             actions.append(
@@ -76,23 +87,26 @@ def get_tools_agent_executor(
         # We use the response to create a ToolMessage
         tool_messages = [
             LiberalToolMessage(
+                id=str(uuid4()),
                 tool_call_id=tool_call["id"],
                 name=tool_call["name"],
                 content=response,
             )
             for tool_call, response in zip(last_message.tool_calls, responses)
         ]
-        return tool_messages
+        return {"messages": tool_messages}
 
-    workflow = MessageGraph()
+    workflow = StateGraph(AgentState)
 
     # Define the two nodes we will cycle between
     workflow.add_node("agent", agent)
     workflow.add_node("action", call_tool)
+    workflow.add_node(FINISH_NODE_KEY, FINISH_NODE_ACTION)
 
     # Set the entrypoint as `agent`
     # This means that this node is the first one called
     workflow.set_entry_point("agent")
+    workflow.set_finish_point(FINISH_NODE_KEY)
 
     # We now add a conditional edge
     workflow.add_conditional_edges(
@@ -111,7 +125,7 @@ def get_tools_agent_executor(
             # If `tools`, then we call the tool node.
             "continue": "action",
             # Otherwise we finish.
-            "end": END,
+            "end": FINISH_NODE_KEY,
         },
     )
 
