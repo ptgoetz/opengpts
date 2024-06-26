@@ -1,3 +1,4 @@
+import argparse
 import os
 from pathlib import Path
 
@@ -62,5 +63,7 @@ else:
 
 if __name__ == "__main__":
     import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8100)
+    parser = argparse.ArgumentParser(description="Run the Sema4.ai Agent Server")
+    parser.add_argument('-p', '--port', type=int, default=8100, help='Port to run the HTTP server on. Default is 8100.')
+    args = parser.parse_args()
+    uvicorn.run(app, host="0.0.0.0", port=args.port)
