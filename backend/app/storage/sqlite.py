@@ -302,11 +302,12 @@ class SqliteStorage(BaseStorage):
     ):
         """Add state to a thread."""
         app = get_agent_executor([], AgentType.GPT_35_TURBO, "", False)
-        app.update_state(
+        retval =  app.update_state(
             {"configurable": {"thread_id": thread_id}},
             values,
             as_node=as_node,
         )
+        return retval
 
     async def get_thread_history(self, user_id: str, thread_id: str):
         """Get the history of a thread."""
