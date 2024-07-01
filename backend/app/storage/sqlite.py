@@ -17,6 +17,7 @@ from app.agent import AgentType, get_agent_executor
 from app.agent_types.constants import FINISH_NODE_KEY
 from app.constants import DOMAIN_DATABASE_PATH
 from app.lifespan import get_pg_pool
+from app.agent import agent
 from app.schema import Assistant, Thread, UploadedFile, User
 from app.storage import BaseStorage
 
@@ -286,7 +287,7 @@ class SqliteStorage(BaseStorage):
 
     async def get_thread_state(self, user_id: str, thread_id: str):
         """Get state for a thread."""
-        app = get_agent_executor([], AgentType.GPT_35_TURBO, "", False)
+        app = get_agent_executor([], AgentType.GPT_35_TURBO, "", False, 0)
         state = app.get_state({"configurable": {"thread_id": thread_id}})
         return {
             "values": state.values,
@@ -294,16 +295,25 @@ class SqliteStorage(BaseStorage):
         }
 
     async def update_thread_state(
-        self,
-        user_id: str,
-        thread_id: str,
-        values: Union[Sequence[AnyMessage], Dict[str, Any]],
-        as_node: Optional[str] = FINISH_NODE_KEY,
+            self,
+            user_id: str,
+            thread_id: str,
+            values: Union[Sequence[AnyMessage], Dict[str, Any]],
+            as_node: Optional[str] = FINISH_NODE_KEY,
     ):
         """Add state to a thread."""
-        app = get_agent_executor([], AgentType.GPT_35_TURBO, "", False)
-        retval =  app.update_state(
-            {"configurable": {"thread_id": thread_id}},
+        thread = await self.get_thread(user_id, thread_id)
+        assistant_id = thread["assistant_id"]
+        assistant = await self.get_assistant(user_id, assistant_id)
+        config = assistant["config"]["configurable"] if assistant else {}
+        retval = agent.update_state(
+            {
+                "configurable": {
+                    **config,
+                    "thread_id": thread_id,
+                    "assistant_id": assistant_id,
+                }
+            },
             values,
             as_node=as_node,
         )

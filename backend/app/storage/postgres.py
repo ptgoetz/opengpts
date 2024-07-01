@@ -190,7 +190,7 @@ class PostgresStorage(BaseStorage):
     ):
         """Add state to a thread."""
         app = get_agent_executor([], AgentType.GPT_35_TURBO, "", False)
-        await app.update_state(
+        app.update_state(
             {"configurable": {"thread_id": thread_id}},
             values,
             as_node=as_node,

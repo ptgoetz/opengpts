@@ -112,7 +112,7 @@ async def create_thread(
     )
     if payload.starting_message is not None:
         message = AIMessage(id=str(uuid4()), content=payload.starting_message)
-        thread = await get_storage().update_thread_state(
+        await get_storage().update_thread_state(
             user_id=user["user_id"],
             thread_id=thread["thread_id"],
             values={"messages": [message]},

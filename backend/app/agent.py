@@ -11,7 +11,9 @@ from langgraph.checkpoint import CheckpointAt
 from langgraph.graph.message import Messages
 from langgraph.pregel import Pregel
 
+from app.agent_types.planner_agent import get_plan_execute_agent
 from app.agent_types.tools_agent import get_tools_agent_executor
+from app.agent_types.vitality_ai_multi_agent import vitality_ai_new as vitality_ai
 from app.agent_types.xml_agent import get_xml_agent_executor
 from app.chatbot import get_chatbot_executor
 from app.llms import (
@@ -82,50 +84,37 @@ def get_agent_executor(
     agent: AgentType,
     system_message: str,
     interrupt_before_action: bool,
+    reasoning_level: int,
 ):
     if agent == AgentType.GPT_35_TURBO:
         llm = get_openai_llm()
-        return get_tools_agent_executor(
-            tools, llm, system_message, interrupt_before_action, CHECKPOINTER
-        )
+        # TODO: hard coded use reasoning for now
     elif agent == AgentType.GPT_4:
         llm = get_openai_llm(model="gpt-4-turbo")
-        return get_tools_agent_executor(
-            tools, llm, system_message, interrupt_before_action, CHECKPOINTER
-        )
     elif agent == AgentType.GPT_4O:
         llm = get_openai_llm(model="gpt-4o")
-        return get_tools_agent_executor(
-            tools, llm, system_message, interrupt_before_action, CHECKPOINTER
-        )
     elif agent == AgentType.AZURE_OPENAI:
         llm = get_openai_llm(azure=True)
-        return get_tools_agent_executor(
-            tools, llm, system_message, interrupt_before_action, CHECKPOINTER
-        )
     elif agent == AgentType.CLAUDE2:
         llm = get_anthropic_llm()
-        return get_tools_agent_executor(
-            tools, llm, system_message, interrupt_before_action, CHECKPOINTER
-        )
     elif agent == AgentType.BEDROCK_CLAUDE2:
         llm = get_anthropic_llm(bedrock=True)
-        return get_xml_agent_executor(
-            tools, llm, system_message, interrupt_before_action, CHECKPOINTER
-        )
     elif agent == AgentType.GEMINI:
         llm = get_google_llm()
-        return get_tools_agent_executor(
-            tools, llm, system_message, interrupt_before_action, CHECKPOINTER
-        )
     elif agent == AgentType.OLLAMA:
         llm = get_ollama_llm()
-        return get_tools_agent_executor(
-            tools, llm, system_message, interrupt_before_action, CHECKPOINTER
-        )
 
     else:
         raise ValueError("Unexpected agent type")
+
+    return get_tools_agent_executor(
+        tools,
+        llm,
+        system_message,
+        reasoning_level,
+        interrupt_before_action,
+        CHECKPOINTER,
+    )
 
 
 class ConfigurableAgent(RunnableBinding):
@@ -137,6 +126,7 @@ class ConfigurableAgent(RunnableBinding):
     assistant_id: Optional[str] = None
     thread_id: Optional[str] = None
     user_id: Optional[str] = None
+    reasoning_level: int = 0
 
     def __init__(
         self,
@@ -146,9 +136,9 @@ class ConfigurableAgent(RunnableBinding):
         system_message: str = DEFAULT_SYSTEM_MESSAGE,
         assistant_id: Optional[str] = None,
         thread_id: Optional[str] = None,
-        user_id: Optional[str] = None,
         retrieval_description: str = RETRIEVAL_DESCRIPTION,
         interrupt_before_action: bool = False,
+        reasoning_level: int = 0,
         kwargs: Optional[Mapping[str, Any]] = None,
         config: Optional[Mapping[str, Any]] = None,
         **others: Any,
@@ -166,23 +156,13 @@ class ConfigurableAgent(RunnableBinding):
                 )
             else:
                 tool_config = _tool.get("config", {})
-                if _tool["type"] == AvailableTools.ACTION_SERVER:
-                    tool_config["additional_headers"] = (
-                        {
-                            "x-invoked_by_assistant_id": assistant_id,
-                            "x-invoked_on_behalf_of_user_id": user_id,
-                        }
-                        if assistant_id and user_id
-                        else {}
-                    )
-
                 _returned_tools = TOOLS[_tool["type"]](**tool_config)
                 if isinstance(_returned_tools, list):
                     _tools.extend(_returned_tools)
                 else:
                     _tools.append(_returned_tools)
         _agent = get_agent_executor(
-            _tools, agent, system_message, interrupt_before_action
+            _tools, agent, system_message, interrupt_before_action, reasoning_level
         )
         agent_executor = _agent.with_config({"recursion_limit": 50})
         super().__init__(
@@ -265,10 +245,7 @@ chatbot = (
         llm=ConfigurableField(id="llm_type", name="LLM Type"),
         system_message=ConfigurableField(id="system_message", name="Instructions"),
     )
-    .with_types(
-        input_type=Messages,
-        output_type=Sequence[AnyMessage],
-    )
+    .with_types(input_type=Sequence[AnyMessage], output_type=Sequence[AnyMessage])
 )
 
 
@@ -332,22 +309,172 @@ chat_retrieval = (
         ),
         thread_id=ConfigurableField(id="thread_id", name="Thread ID", is_shared=True),
     )
-    .with_types(
-        input_type=Dict[str, Any],
-        output_type=Dict[str, Any],
-    )
+    .with_types(input_type=Sequence[AnyMessage], output_type=Sequence[AnyMessage])
 )
 
 
-agent: Pregel = (
-    ConfigurableAgent(
-        agent=AgentType.GPT_35_TURBO,
+class ConfigurablePlanExecute(RunnableBinding):
+    tools: Sequence[Tool]
+    agent: AgentType
+    system_message: str = DEFAULT_SYSTEM_MESSAGE
+    retrieval_description: str = RETRIEVAL_DESCRIPTION
+    interrupt_before_action: bool = False
+    assistant_id: Optional[str] = None
+    thread_id: Optional[str] = None
+    user_id: Optional[str] = None
+
+    def __init__(
+        self,
+        *,
+        tools: Sequence[Tool],
+        agent: AgentType = AgentType.GPT_35_TURBO,
+        system_message: str = DEFAULT_SYSTEM_MESSAGE,
+        assistant_id: Optional[str] = None,
+        thread_id: Optional[str] = None,
+        retrieval_description: str = RETRIEVAL_DESCRIPTION,
+        interrupt_before_action: bool = False,
+        kwargs: Optional[Mapping[str, Any]] = None,
+        config: Optional[Mapping[str, Any]] = None,
+        **others: Any,
+    ) -> None:
+        others.pop("bound", None)
+        _tools = []
+        for _tool in tools:
+            if _tool["type"] == AvailableTools.RETRIEVAL:
+                if assistant_id is None or thread_id is None:
+                    raise ValueError(
+                        "Both assistant_id and thread_id must be provided if Retrieval tool is used"
+                    )
+                _tools.append(
+                    get_retrieval_tool(assistant_id, thread_id, retrieval_description)
+                )
+            else:
+                tool_config = _tool.get("config", {})
+                _returned_tools = TOOLS[_tool["type"]](**tool_config)
+                if isinstance(_returned_tools, list):
+                    _tools.extend(_returned_tools)
+                else:
+                    _tools.append(_returned_tools)
+        if agent == AgentType.GPT_35_TURBO:
+            llm = get_openai_llm()
+        elif agent == AgentType.GPT_4:
+            llm = get_openai_llm(model="gpt-4-turbo")
+        elif agent == AgentType.GPT_4O:
+            llm = get_openai_llm(model="gpt-4o")
+        elif agent == AgentType.AZURE_OPENAI:
+            llm = get_openai_llm(azure=True)
+        elif agent == AgentType.CLAUDE2:
+            raise NotImplementedError("Claude 2 is not supported for PlanExecute")
+        elif agent == AgentType.BEDROCK_CLAUDE2:
+            raise NotImplementedError("Claude 2 is not supported for PlanExecute")
+        elif agent == AgentType.GEMINI:
+            raise NotImplementedError("GEMINI is not supported for PlanExecute")
+        elif agent == AgentType.MIXTRAL:
+            raise NotImplementedError("Mixtral is not supported for PlanExecute")
+        elif agent == AgentType.OLLAMA:
+            raise NotImplementedError("Ollama is not supported for PlanExecute")
+        else:
+            raise ValueError("Unexpected llm type")
+        _agent = get_plan_execute_agent(
+            _tools, llm, system_message, interrupt_before_action, CHECKPOINTER
+        )
+        agent_executor = _agent.with_config({"recursion_limit": 50})
+        super().__init__(
+            tools=tools,
+            agent=agent,
+            system_message=system_message,
+            retrieval_description=retrieval_description,
+            bound=agent_executor,
+            kwargs=kwargs or {},
+            config=config or {},
+        )
+
+
+class ConfigurableVitalityMultiAgentPlanningHierarchicalArchitecture(RunnableBinding):
+    tools: Sequence[Tool]
+    agent: AgentType
+    system_message: str = DEFAULT_SYSTEM_MESSAGE
+    retrieval_description: str = RETRIEVAL_DESCRIPTION
+    interrupt_before_action: bool = False
+    assistant_id: Optional[str] = None
+    thread_id: Optional[str] = None
+    user_id: Optional[str] = None
+
+    def __init__(
+        self,
+        *,
+        tools: Sequence[Tool],
+        agent: AgentType = AgentType.GPT_4O,
+        system_message: str = DEFAULT_SYSTEM_MESSAGE,
+        assistant_id: Optional[str] = None,
+        thread_id: Optional[str] = None,
+        retrieval_description: str = RETRIEVAL_DESCRIPTION,
+        interrupt_before_action: bool = False,
+        kwargs: Optional[Mapping[str, Any]] = None,
+        config: Optional[Mapping[str, Any]] = None,
+        **others: Any,
+    ) -> None:
+        others.pop("bound", None)
+        _tools = []
+        for _tool in tools:
+            if _tool["type"] == AvailableTools.RETRIEVAL:
+                if assistant_id is None or thread_id is None:
+                    raise ValueError(
+                        "Both assistant_id and thread_id must be provided if Retrieval tool is used"
+                    )
+                _tools.append(
+                    get_retrieval_tool(assistant_id, thread_id, retrieval_description)
+                )
+            else:
+                tool_config = _tool.get("config", {})
+                _returned_tools = TOOLS[_tool["type"]](**tool_config)
+                if isinstance(_returned_tools, list):
+                    _tools.extend(_returned_tools)
+                else:
+                    _tools.append(_returned_tools)
+        if agent == AgentType.GPT_35_TURBO:
+            llm = get_openai_llm()
+        elif agent == AgentType.GPT_4:
+            llm = get_openai_llm(model="gpt-4-turbo")
+        elif agent == AgentType.GPT_4O:
+            llm = get_openai_llm(model="gpt-4o")
+        elif agent == AgentType.AZURE_OPENAI:
+            llm = get_openai_llm(azure=True)
+        elif agent == AgentType.CLAUDE2:
+            raise NotImplementedError("Claude 2 is not supported for PlanExecute")
+        elif agent == AgentType.BEDROCK_CLAUDE2:
+            raise NotImplementedError("Claude 2 is not supported for PlanExecute")
+        elif agent == AgentType.GEMINI:
+            raise NotImplementedError("GEMINI is not supported for PlanExecute")
+        elif agent == AgentType.MIXTRAL:
+            raise NotImplementedError("Mixtral is not supported for PlanExecute")
+        elif agent == AgentType.OLLAMA:
+            raise NotImplementedError("Ollama is not supported for PlanExecute")
+        else:
+            raise ValueError("Unexpected llm type")
+        _agent = vitality_ai.get_tools_agent_executor(
+            _tools, llm, interrupt_before_action, CHECKPOINTER
+        )
+        agent_executor = _agent.with_config({"recursion_limit": 50})
+        super().__init__(
+            tools=tools,
+            agent=agent,
+            system_message=system_message,
+            retrieval_description=retrieval_description,
+            bound=agent_executor,
+            kwargs=kwargs or {},
+            config=config or {},
+        )
+
+
+chat_plan_execute = (
+    ConfigurablePlanExecute(
         tools=[],
+        agent=AgentType.GPT_35_TURBO,
         system_message=DEFAULT_SYSTEM_MESSAGE,
         retrieval_description=RETRIEVAL_DESCRIPTION,
         assistant_id=None,
         thread_id=None,
-        user_id=None,
     )
     .configurable_fields(
         agent=ConfigurableField(id="agent_type", name="Agent Type"),
@@ -361,10 +488,73 @@ agent: Pregel = (
             id="assistant_id", name="Assistant ID", is_shared=True
         ),
         thread_id=ConfigurableField(id="thread_id", name="Thread ID", is_shared=True),
-        user_id=ConfigurableField(id="user_id", name="User ID", is_shared=True),
         tools=ConfigurableField(id="tools", name="Tools"),
         retrieval_description=ConfigurableField(
             id="retrieval_description", name="Retrieval Description"
+        ),
+    )
+    .with_types(input_type=Dict[str, str], output_type=Sequence[AnyMessage])
+)
+
+multi_agent_hierarchical_planning = (
+    ConfigurableVitalityMultiAgentPlanningHierarchicalArchitecture(
+        tools=[],
+        agent=AgentType.GPT_4O,
+        system_message=DEFAULT_SYSTEM_MESSAGE,
+        retrieval_description=RETRIEVAL_DESCRIPTION,
+        assistant_id=None,
+        thread_id=None,
+    )
+    .configurable_fields(
+        agent=ConfigurableField(id="agent_type", name="Agent Type"),
+        system_message=ConfigurableField(id="system_message", name="Instructions"),
+        interrupt_before_action=ConfigurableField(
+            id="interrupt_before_action",
+            name="Tool Confirmation",
+            description="If Yes, you'll be prompted to continue before each tool is executed.\nIf No, tools will be executed automatically by the agent.",
+        ),
+        assistant_id=ConfigurableField(
+            id="assistant_id", name="Assistant ID", is_shared=True
+        ),
+        thread_id=ConfigurableField(id="thread_id", name="Thread ID", is_shared=True),
+        tools=ConfigurableField(id="tools", name="Tools"),
+        retrieval_description=ConfigurableField(
+            id="retrieval_description", name="Retrieval Description"
+        ),
+    )
+    .with_types(input_type=Dict[str, str], output_type=Sequence[AnyMessage])
+)
+
+agent: Pregel = (
+    ConfigurableAgent(
+        agent=AgentType.GPT_35_TURBO,
+        tools=[],
+        system_message=DEFAULT_SYSTEM_MESSAGE,
+        retrieval_description=RETRIEVAL_DESCRIPTION,
+        assistant_id=None,
+        thread_id=None,
+        reasoning_level=0,
+    )
+    .configurable_fields(
+        agent=ConfigurableField(id="agent_type", name="Agent Type"),
+        system_message=ConfigurableField(id="system_message", name="Instructions"),
+        interrupt_before_action=ConfigurableField(
+            id="interrupt_before_action",
+            name="Tool Confirmation",
+            description="If Yes, you'll be prompted to continue before each tool is executed.\nIf No, tools will be executed automatically by the agent.",
+        ),
+        assistant_id=ConfigurableField(
+            id="assistant_id", name="Assistant ID", is_shared=True
+        ),
+        thread_id=ConfigurableField(id="thread_id", name="Thread ID", is_shared=True),
+        tools=ConfigurableField(id="tools", name="Tools"),
+        retrieval_description=ConfigurableField(
+            id="retrieval_description", name="Retrieval Description"
+        ),
+        reasoning_level=ConfigurableField(
+            id="reasoning_level",
+            name="Reasoning Level",
+            description="The level of reasoning the agent should use, 0 for no reasoning, 1 for succinct reasoning, 2 for verbose reasoning.",
         ),
     )
     .configurable_alternatives(
@@ -373,11 +563,10 @@ agent: Pregel = (
         prefix_keys=True,
         chatbot=chatbot,
         chat_retrieval=chat_retrieval,
+        chat_plan_execute=chat_plan_execute,
+        multi_agent_hierarchical_planning=multi_agent_hierarchical_planning,
     )
-    .with_types(
-        input_type=Messages,
-        output_type=Sequence[AnyMessage],
-    )
+    .with_types(input_type=Messages, output_type=Sequence[AnyMessage])
 )
 
 if __name__ == "__main__":
